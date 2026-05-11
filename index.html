@@ -774,14 +774,135 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
   </div>
 </div>
 
+<div id="db-loader" style="display:none;position:fixed;inset:0;background:rgba(15,110,86,.92);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+  <div style="width:44px;height:44px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite"></div>
+  <div style="color:#fff;font-size:14px;font-weight:600">Conectando con la base de datos…</div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
 <div class="toast" id="toast"></div>
 
-<script>
-/* ══ BASE DE DATOS EN MEMORIA ══ */
-const USERS = [
-  { phone:'9331464477', lada:'+52', pwd:'Elias2004$', nombre:'Elías', rol:'admin', wid:'W-0001', activo:true }
+<script type="module">
+/* ══ FIREBASE CONFIG ══ */
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.7.1/firebase-app.js';
+import {
+  getFirestore, collection, doc,
+  getDocs, setDoc, updateDoc, deleteDoc,
+  onSnapshot, getDoc
+} from 'https://www.gstatic.com/firebasejs/11.7.1/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCGXch7PPjwDzPFtev9utf0cmtW14oRBNA",
+  authDomain: "avafor-tech.firebaseapp.com",
+  projectId: "avafor-tech",
+  storageBucket: "avafor-tech.firebasestorage.app",
+  messagingSenderId: "326170682256",
+  appId: "1:326170682256:web:4fd5d8933ded8aa7da8915"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+/* ══ COLECCIONES ══ */
+const COL = { users:'usuarios', clients:'clientes', registros:'registros', meta:'meta' };
+
+/* ══ DATOS EN MEMORIA (caché local) ══ */
+const DEFAULT_USERS = [{ phone:'9331464477', lada:'+52', pwd:'Elias2004$', nombre:'Elías', rol:'admin', wid:'W-0001', activo:true }];
+let USERS     = [];
+let clients   = [];
+let registros = [];
+let nextWnum  = 2, nextCid = 5, nextRnum = 6;
+let selCid = null, curEstado = null;
+let currentUser = null;
+
+/* ══ HELPERS FIREBASE ══ */
+async function fbSet(col, id, data){
+  await setDoc(doc(db, col, id), data);
+}
+async function fbUpdate(col, id, data){
+  await updateDoc(doc(db, col, id), data);
+}
+async function fbGetAll(col){
+  const snap = await getDocs(collection(db, col));
+  return snap.docs.map(d=>({...d.data(), _fid: d.id}));
+}
+
+/* ══ GUARDAR META (contadores) ══ */
+async function saveMeta(){
+  await fbSet(COL.meta, 'counters', { nextWnum, nextCid, nextRnum });
+}
+
+/* ══ INICIALIZACIÓN: carga datos desde Firebase ══ */
+const DEFAULT_CLIENTS = [
+  {id:'0001',name:'Carlos Méndez'},{id:'0002',name:'Ana López'},
+  {id:'0003',name:'Juanito'},{id:'0004',name:'Ferretería El Pino'}
 ];
-let nextWnum = 2;
+const DEFAULT_REGS = [
+  {id:'R001',cid:'0001',cnombre:'Carlos Méndez',wid:'W-0001',tipo:'instalacion',lugar:'Calle Reforma 45',fecha:'2025-04-10',costo:3500,estado:'realizado',prox:'2025-10-10',desc:'Instalación split 1.5 ton Carrier.',notas:''},
+  {id:'R002',cid:'0002',cnombre:'Ana López',wid:'W-0001',tipo:'mp',lugar:'Av. Tabasco 12',fecha:'2025-04-28',costo:800,estado:'pendiente',prox:'2025-10-28',desc:'Mantenimiento preventivo minisplit LG.',notas:''},
+  {id:'R003',cid:'0004',cnombre:'Ferretería El Pino',wid:'W-0001',tipo:'mc',lugar:'Blvd. Industrial 88',fecha:'2025-03-05',costo:1200,estado:'vencido',prox:'2025-04-05',desc:'Fuga de gas R-410A. Se selló y recargó.',notas:''},
+  {id:'R004',cid:'0003',cnombre:'Juanito',wid:'W-0001',tipo:'electrico',lugar:'Col. Las Flores Mz3 Lt7',fecha:'2025-05-01',costo:2100,estado:'realizado',prox:'',desc:'Instalación tablero bifásico.',notas:''},
+  {id:'R005',cid:'0001',cnombre:'Carlos Méndez',wid:'W-0001',tipo:'tablaroca',lugar:'Calle Reforma 45',fecha:'2025-05-03',costo:4800,estado:'pendiente',prox:'',desc:'División tablaroca 12m².',notas:''},
+];
+
+async function initDB(){
+  showLoader(true);
+  try {
+    // Meta / contadores
+    const metaDoc = await getDoc(doc(db, COL.meta, 'counters'));
+    if(metaDoc.exists()){
+      const m = metaDoc.data();
+      nextWnum = m.nextWnum || 2;
+      nextCid  = m.nextCid  || 5;
+      nextRnum = m.nextRnum || 6;
+    }
+
+    // Usuarios
+    const uSnap = await getDocs(collection(db, COL.users));
+    USERS.length = 0;
+    uSnap.forEach(d => USERS.push({...d.data(), _fid: d.id}));
+    if(!USERS.length){
+      const u = DEFAULT_USERS[0];
+      await fbSet(COL.users, u.wid, u);
+      USERS.push({...u, _fid: u.wid});
+    }
+
+    // Clientes
+    const cSnap = await getDocs(collection(db, COL.clients));
+    clients.length = 0;
+    cSnap.forEach(d => clients.push({...d.data(), _fid: d.id}));
+    if(!clients.length){
+      for(const c of DEFAULT_CLIENTS){
+        await fbSet(COL.clients, c.id, c);
+        clients.push(c);
+      }
+    }
+
+    // Registros
+    const rSnap = await getDocs(collection(db, COL.registros));
+    registros.length = 0;
+    rSnap.forEach(d => registros.push({...d.data(), _fid: d.id}));
+    if(!registros.length){
+      for(const r of DEFAULT_REGS){
+        await fbSet(COL.registros, r.id, r);
+        registros.push(r);
+      }
+    }
+    registros.sort((a,b)=>b.id.localeCompare(a.id));
+
+    // Guardar meta si es primera vez
+    await saveMeta();
+
+  } catch(e){
+    console.error('Firebase error:', e);
+    showToast('Error de conexión con la base de datos');
+  }
+  showLoader(false);
+}
+
+function showLoader(on){
+  document.getElementById('db-loader').style.display = on ? 'flex' : 'none';
+}
 
 const AC = ['instalacion','mp','mc'];
 const TIPO_LBL = {
@@ -804,32 +925,7 @@ const BS = {
   cancelado:{bg:'#F3F4F6',c:'#6B7280',lbl:'Cancelado'}
 };
 
-let clients = [
-  {id:'0001',name:'Carlos Méndez'},{id:'0002',name:'Ana López'},
-  {id:'0003',name:'Juanito'},{id:'0004',name:'Ferretería El Pino'},
-];
-let nextCid = 5;
-let selCid = null, curEstado = null;
-let currentUser = null;
-
-let registros = [
-  {id:'R001',cid:'0001',cnombre:'Carlos Méndez',wid:'W-0001',tipo:'instalacion',
-   lugar:'Calle Reforma 45',fecha:'2025-04-10',costo:3500,estado:'realizado',
-   prox:'2025-10-10',desc:'Instalación split 1.5 ton Carrier.',notas:''},
-  {id:'R002',cid:'0002',cnombre:'Ana López',wid:'W-0001',tipo:'mp',
-   lugar:'Av. Tabasco 12',fecha:'2025-04-28',costo:800,estado:'pendiente',
-   prox:'2025-10-28',desc:'Mantenimiento preventivo minisplit LG.',notas:''},
-  {id:'R003',cid:'0004',cnombre:'Ferretería El Pino',wid:'W-0001',tipo:'mc',
-   lugar:'Blvd. Industrial 88',fecha:'2025-03-05',costo:1200,estado:'vencido',
-   prox:'2025-04-05',desc:'Fuga de gas R-410A. Se selló y recargó.',notas:''},
-  {id:'R004',cid:'0003',cnombre:'Juanito',wid:'W-0001',tipo:'electrico',
-   lugar:'Col. Las Flores Mz3 Lt7',fecha:'2025-05-01',costo:2100,estado:'realizado',
-   prox:'',desc:'Instalación tablero bifásico.',notas:''},
-  {id:'R005',cid:'0001',cnombre:'Carlos Méndez',wid:'W-0001',tipo:'tablaroca',
-   lugar:'Calle Reforma 45',fecha:'2025-05-03',costo:4800,estado:'pendiente',
-   prox:'',desc:'División tablaroca 12m².',notas:''},
-];
-let nextRnum = 6;
+/* constantes de UI */
 
 /* ══ ROUTER ══ */
 function go(id){
@@ -844,7 +940,7 @@ function toggleEye(fid,iid){
   i.type=show?'text':'password';
   document.getElementById(iid).className=show?'ti ti-eye-off':'ti ti-eye';
 }
-function doLogin(){
+async function doLogin(){
   const lada=document.getElementById('lada').value;
   const phone=document.getElementById('login-phone').value.trim();
   const pwd=document.getElementById('login-pwd').value;
@@ -852,6 +948,8 @@ function doLogin(){
   const ew=document.getElementById('err-pwd');
   ep.style.display='none'; ew.style.display='none';
   if(phone.length<10||phone.length>12){ep.style.display='block';return;}
+  // Asegurar que Firebase ya cargó
+  if(!USERS.length) await initDB();
   const user=USERS.find(u=>u.phone===phone&&u.lada===lada&&u.pwd===pwd&&u.activo);
   if(!user){ew.style.display='block';return;}
   currentUser=user;
@@ -990,7 +1088,7 @@ function editTipoChange(){
   const v=document.getElementById('edit-tj-tipo').value;
   document.getElementById('edit-prox-wrap').style.display=AC.includes(v)?'block':'none';
 }
-function saveEditTJ(){
+async function saveEditTJ(){
   const id=document.getElementById('edit-tj-id').value;
   const r=registros.find(x=>x.id===id);
   if(!r)return;
@@ -1002,6 +1100,8 @@ function saveEditTJ(){
   r.estado=document.getElementById('edit-tj-estado').value;
   r.desc=document.getElementById('edit-tj-desc').value.trim();
   r.notas=document.getElementById('edit-tj-notas').value.trim();
+  const {_fid,...data}=r;
+  await fbSet(COL.registros, id, data);
   closeModal('modal-edit-tj');
   const activeChip=document.querySelector('.chip.on');
   const f=activeChip?activeChip.textContent.trim().toLowerCase():'todos';
@@ -1018,18 +1118,18 @@ function openCancelTJ(id){
     `Trabajo: ${TIPO_LBL[r.tipo]||r.tipo} · Cliente: ${r.cnombre} · Fecha: ${r.fecha}`;
   openModal('modal-cancel-tj');
 }
-function confirmCancelTJ(){
+async function confirmCancelTJ(){
   const id=document.getElementById('cancel-tj-id').value;
   const r=registros.find(x=>x.id===id);
-  if(r)r.estado='cancelado';
+  if(r){ r.estado='cancelado'; await fbUpdate(COL.registros, id, {estado:'cancelado'}); }
   closeModal('modal-cancel-tj');
   renderTJ('todos');
   renderDash();
   showToast('Trabajo cancelado');
 }
-function restoreTJ(id){
+async function restoreTJ(id){
   const r=registros.find(x=>x.id===id);
-  if(r)r.estado='pendiente';
+  if(r){ r.estado='pendiente'; await fbUpdate(COL.registros, id, {estado:'pendiente'}); }
   renderTJ('cancelado');
   renderDash();
   showToast('Trabajo restaurado como Pendiente');
@@ -1062,14 +1162,17 @@ function toggleNewCli(){
   f.style.display=f.style.display==='none'?'block':'none';
   document.getElementById('cli-dd').style.display='none';
 }
-function createCli(){
+async function createCli(){
   const name=document.getElementById('nc-name').value.trim();
   if(!name){showToast('Escribe el nombre del cliente');return;}
   const ex=clients.find(c=>c.name.toLowerCase()===name.toLowerCase());
   if(ex){selCli(ex.id,ex.name);showToast('Cliente existente → ID #'+ex.id);
     document.getElementById('new-cli-form').style.display='none';return;}
   const id=padId(nextCid++);
-  clients.push({id,name});
+  const cli={id,name};
+  clients.push(cli);
+  await fbSet(COL.clients, id, cli);
+  await saveMeta();
   selCli(id,name);
   showToast('Cliente creado → ID #'+id);
   document.getElementById('new-cli-form').style.display='none';
@@ -1104,7 +1207,7 @@ function setE(e){
   document.getElementById('e-r').className='e-opt'+(e==='realizado'?' sel-r':'');
   document.getElementById('e-p').className='e-opt'+(e==='pendiente'?' sel-p':'');
 }
-function saveReg(){
+async function saveReg(){
   const tipo=document.getElementById('f-tipo').value;
   const lugar=document.getElementById('f-lugar').value.trim();
   const fecha=document.getElementById('f-fecha').value;
@@ -1120,11 +1223,10 @@ function saveReg(){
   if(!curEstado){showToast('Selecciona el estado');return;}
   const cnombre=clients.find(c=>c.id===selCid)?.name||'';
   const rid='R'+String(nextRnum++).padStart(3,'0');
-  registros.unshift({
-    id:rid,cid:selCid,cnombre,
-    wid:currentUser?currentUser.wid:'W-0001',
-    tipo,lugar,fecha,costo,desc,notas,estado:curEstado,prox
-  });
+  const reg={id:rid,cid:selCid,cnombre,wid:currentUser?currentUser.wid:'W-0001',tipo,lugar,fecha,costo,desc,notas,estado:curEstado,prox};
+  registros.unshift(reg);
+  await fbSet(COL.registros, rid, reg);
+  await saveMeta();
   showToast('Registro guardado — ID '+rid);
   resetForm();
   setTab(0,document.getElementById('tab0'));
@@ -1227,7 +1329,7 @@ function openAddWorker(){
   document.getElementById('aw-rol').value='tecnico';
   openModal('modal-add-worker');
 }
-function addWorker(){
+async function addWorker(){
   const nombre=document.getElementById('aw-nombre').value.trim();
   const phone=document.getElementById('aw-phone').value.trim();
   const pwd=document.getElementById('aw-pwd').value;
@@ -1237,7 +1339,10 @@ function addWorker(){
   if(pwd.length<8){showToast('La contraseña debe tener al menos 8 caracteres');return;}
   if(USERS.find(u=>u.phone===phone&&u.lada==='+52')){showToast('Ese teléfono ya está registrado');return;}
   const wid='W-'+String(nextWnum++).padStart(4,'0');
-  USERS.push({phone,lada:'+52',pwd,nombre,rol,wid,activo:true});
+  const u={phone,lada:'+52',pwd,nombre,rol,wid,activo:true};
+  USERS.push(u);
+  await fbSet(COL.users, wid, u);
+  await saveMeta();
   closeModal('modal-add-worker');
   renderWorkers();
   showToast('Trabajador registrado — '+wid);
@@ -1254,7 +1359,7 @@ function openEditWorker(wid){
   document.getElementById('ew-rol').value=u.rol;
   openModal('modal-edit-worker');
 }
-function saveEditWorker(){
+async function saveEditWorker(){
   const wid=document.getElementById('ew-id').value;
   const u=USERS.find(x=>x.wid===wid);
   if(!u)return;
@@ -1272,6 +1377,8 @@ function saveEditWorker(){
     document.getElementById('nav-nombre').textContent=nombre;
     document.getElementById('nav-rol').textContent=rol==='admin'?'Admin':'Técnico';
   }
+  const {_fid,...data}=u;
+  await fbSet(COL.users, wid, data);
   closeModal('modal-edit-worker');
   renderWorkers();
   showToast('Trabajador actualizado');
@@ -1285,20 +1392,21 @@ function openBajaWorker(wid){
     `¿Dar de baja a ${u.nombre} (${u.wid})?  Perderá acceso al sistema. Puedes reactivarlo en cualquier momento.`;
   openModal('modal-baja-worker');
 }
-function confirmBaja(){
+async function confirmBaja(){
   const wid=document.getElementById('baja-wid').value;
   const u=USERS.find(x=>x.wid===wid);
   if(u){
     if(currentUser&&currentUser.wid===wid){showToast('No puedes darte de baja a ti mismo');return;}
     u.activo=false;
+    await fbUpdate(COL.users, wid, {activo:false});
   }
   closeModal('modal-baja-worker');
   renderWorkers();
   showToast('Trabajador dado de baja');
 }
-function reactivarWorker(wid){
+async function reactivarWorker(wid){
   const u=USERS.find(x=>x.wid===wid);
-  if(u)u.activo=true;
+  if(u){ u.activo=true; await fbUpdate(COL.users, wid, {activo:true}); }
   renderWorkers();
   showToast('Trabajador reactivado');
 }
@@ -1306,10 +1414,21 @@ function reactivarWorker(wid){
 /* ══ MODALES ══ */
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
-// Cerrar al click fuera
 document.querySelectorAll('.modal-overlay').forEach(o=>
   o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');})
 );
+
+/* ══ EXPONER FUNCIONES AL SCOPE GLOBAL (onclick en HTML) ══ */
+Object.assign(window,{
+  go,toggleEye,doLogin,logout,sendOTP,otpN,otpB,verOTP,resendOTP,savePwd,
+  setTab,filterTJ,renderTJ,
+  openEditTJ,editTipoChange,saveEditTJ,openCancelTJ,confirmCancelTJ,restoreTJ,
+  searchCli,selCli,toggleNewCli,createCli,onTipo,chkVencido,setE,saveReg,
+  renderDash,buildMeses,
+  renderWorkers,openAddWorker,addWorker,openEditWorker,saveEditWorker,
+  openBajaWorker,confirmBaja,reactivarWorker,
+  openModal,closeModal
+});
 
 /* ══ UTILS ══ */
 function showToast(msg){
@@ -1321,9 +1440,10 @@ document.addEventListener('click',e=>{
   if(!e.target.closest('#tv1 .card'))
     document.getElementById('cli-dd').style.display='none';
 });
-document.addEventListener('DOMContentLoaded',()=>{
+document.addEventListener('DOMContentLoaded',async ()=>{
   const fd=document.getElementById('f-fecha');
   if(fd)fd.value=new Date().toISOString().split('T')[0];
+  await initDB();
 });
 </script>
 </body>
