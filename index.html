@@ -292,6 +292,17 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .toast.show{opacity:1}
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+
+/* Vista técnico */
+.tj-btn.realizar{color:var(--brand-d);border-color:var(--brand);background:var(--brand-l)}
+.tj-btn.realizar:hover{background:var(--brand);color:#fff}
+.tecnico-header{background:linear-gradient(135deg,#0F6E56,#1D9E75);border-radius:var(--r-md);
+  padding:.85rem 1rem;margin-bottom:1rem;display:flex;align-items:center;gap:10px;color:#fff}
+.tecnico-header i{font-size:22px}
+.tecnico-header strong{font-size:14px;font-weight:700;display:block}
+.tecnico-header span{font-size:12px;opacity:.8}
+.wid-tag{font-size:11px;font-family:monospace;background:rgba(255,255,255,.2);
+  padding:2px 8px;border-radius:20px;margin-left:auto;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -465,7 +476,8 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
 
     <!-- TAB 0: TRABAJOS -->
     <div class="tab-view on" id="tv0">
-      <div class="chip-row">
+      <div id="tecnico-header-wrap"></div>
+      <div class="chip-row" id="chip-row-admin">
         <button class="chip on" onclick="filterTJ('todos',this)">Todos</button>
         <button class="chip" onclick="filterTJ('pendiente',this)">Por realizar</button>
         <button class="chip" onclick="filterTJ('realizado',this)">Realizados</button>
@@ -481,7 +493,7 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
         <div class="id-row">
           <div class="id-chip">
             <span class="id-lbl"><i class="ti ti-id-badge"></i> ID trabajador</span>
-            <span class="id-val" id="form-wid">W-0042</span>
+            <span class="id-val" id="form-wid">W-0001</span>
           </div>
           <div class="id-chip">
             <span class="id-lbl"><i class="ti ti-user"></i> ID cliente</span>
@@ -581,13 +593,18 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
 
     <!-- TAB 2: INGRESOS -->
     <div class="tab-view" id="tv2">
-      <div class="dash-month">
-        <label style="font-size:13px;color:var(--txt2);flex-shrink:0">Mes:</label>
-        <select id="dash-mes" onchange="renderDash()"></select>
+      <div class="dash-month" style="gap:8px;flex-wrap:wrap">
+        <label style="font-size:13px;color:var(--txt2);flex-shrink:0">Período:</label>
+        <select id="dash-anio" onchange="renderDash()" style="height:36px;border:.5px solid var(--border);border-radius:var(--r-md);padding:0 10px;font-size:13px;background:var(--bg-card);color:var(--txt);cursor:pointer"></select>
+        <select id="dash-mes" onchange="renderDash()" style="height:36px;border:.5px solid var(--border);border-radius:var(--r-md);padding:0 10px;font-size:13px;background:var(--bg-card);color:var(--txt);cursor:pointer"></select>
       </div>
       <div class="kpi-row" id="kpi-row"></div>
       <div class="sec-title">Ingresos por área</div>
       <div id="areas-list"></div>
+      <div class="sec-title" style="margin-top:1.25rem">Ingresos mensuales por área</div>
+      <div style="background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-md);padding:1rem;box-shadow:var(--sh);overflow-x:auto">
+        <canvas id="chart-areas" height="220"></canvas>
+      </div>
     </div>
 
     <!-- TAB 3: EQUIPO -->
@@ -605,6 +622,30 @@ input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
 </div>
 
 <!-- MODAL: EDITAR TRABAJO -->
+<!-- MODAL: REALIZAR TRABAJO (Técnico) -->
+<div class="modal-overlay" id="modal-realizar">
+  <div class="modal">
+    <div class="modal-title"><i class="ti ti-circle-check"></i>Marcar como realizado</div>
+    <input type="hidden" id="realizar-id">
+    <div class="confirm-box" style="background:var(--brand-l);border-color:var(--brand-b);color:var(--brand-d)">
+      <i class="ti ti-info-circle"></i>
+      <span id="realizar-desc">Este trabajo quedará marcado como <strong>Realizado</strong> con tu ID.</span>
+    </div>
+    <div class="modal-field" style="margin-top:.75rem">
+      <label>Notas de cierre (opcional)</label>
+      <textarea id="realizar-notas" placeholder="Ej: Se completó la instalación, cliente conforme..."
+        style="width:100%;height:80px;resize:none;border:.5px solid var(--border);border-radius:var(--r-md);
+        padding:8px 12px;font-size:14px;font-family:inherit;background:var(--bg-card);color:var(--txt)"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-realizar')">Cancelar</button>
+      <button class="btn-main" onclick="confirmRealizar()">
+        <i class="ti ti-check"></i>Confirmar
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-edit-tj">
   <div class="modal">
     <div class="modal-title"><i class="ti ti-pencil"></i>Editar trabajo</div>
@@ -924,7 +965,6 @@ async function doLogin(){
   const ew=document.getElementById('err-pwd');
   ep.style.display='none'; ew.style.display='none';
   if(phone.length<10||phone.length>12){ep.style.display='block';return;}
-  // Asegurar que Firebase ya cargó
   if(!USERS.length) await initDB();
   const user=USERS.find(u=>u.phone===phone&&u.lada===lada&&u.pwd===pwd&&u.activo);
   if(!user){ew.style.display='block';return;}
@@ -932,6 +972,13 @@ async function doLogin(){
   document.getElementById('nav-nombre').textContent=user.nombre;
   document.getElementById('nav-rol').textContent=user.rol==='admin'?'Admin':'Técnico';
   document.getElementById('form-wid').textContent=user.wid;
+
+  const isAdmin=user.rol==='admin';
+  // Mostrar/ocultar tabs según rol
+  document.getElementById('tab1').style.display=isAdmin?'':'none'; // Anexar
+  document.getElementById('tab2').style.display=isAdmin?'':'none'; // Ingresos
+  document.getElementById('tab3').style.display=isAdmin?'':'none'; // Equipo
+
   renderTJ('todos');
   buildMeses();
   renderDash();
@@ -1004,9 +1051,27 @@ function filterTJ(f,btn){
   renderTJ(f);
 }
 function renderTJ(f){
+  const isAdmin=currentUser?.rol==='admin';
   const list=document.getElementById('tj-list');
+  const chipRow=document.getElementById('chip-row-admin');
+  const headerWrap=document.getElementById('tecnico-header-wrap');
+
+  if(chipRow) chipRow.style.display='flex';
+  if(headerWrap){
+    if(!isAdmin){
+      headerWrap.innerHTML=`<div class="tecnico-header">
+        <i class="ti ti-clipboard-check"></i>
+        <div><strong>Trabajos disponibles</strong><span>Marca como realizado los que completes</span></div>
+        <span class="wid-tag">${currentUser.wid}</span>
+      </div>`;
+    } else {
+      headerWrap.innerHTML='';
+    }
+  }
+
   const data=f==='todos'?registros.filter(r=>r.estado!=='cancelado')
-            :registros.filter(r=>r.estado===f);
+                        :registros.filter(r=>r.estado===f);
+
   if(!data.length){
     list.innerHTML=`<div class="empty"><i class="ti ti-clipboard-off"></i>No hay trabajos en esta categoría</div>`;
     return;
@@ -1014,6 +1079,8 @@ function renderTJ(f){
   list.innerHTML=data.map(r=>{
     const b=BS[r.estado]||BS.pendiente;
     const isCancelled=r.estado==='cancelado';
+    const isRealizado=r.estado==='realizado';
+    const realizadorNombre=r.realizadoPor?USERS.find(u=>u.wid===r.realizadoPor)?.nombre||r.realizadoPor:'';
     return`<div class="tj-card" ${isCancelled?'style="opacity:.6"':''}>
       <div class="tj-head">
         <span class="tj-tipo">${TIPO_LBL[r.tipo]||r.tipo}</span>
@@ -1023,21 +1090,26 @@ function renderTJ(f){
         <i class="ti ti-user" style="font-size:12px;margin-right:3px"></i>${r.cnombre} #${r.cid}
         &nbsp;·&nbsp;<i class="ti ti-calendar" style="font-size:12px;margin-right:3px"></i>${r.fecha}
         &nbsp;·&nbsp;$${r.costo.toLocaleString()}
-        ${r.prox?`<br><i class="ti ti-calendar-event" style="font-size:12px;margin-right:3px"></i>Próx: ${r.prox}`:''}</div>
+        ${r.prox?`<br><i class="ti ti-calendar-event" style="font-size:12px;margin-right:3px"></i>Próx: ${r.prox}`:''}
+        ${realizadorNombre?`<br><i class="ti ti-circle-check" style="font-size:12px;margin-right:3px;color:var(--brand)"></i>Realizado por: ${realizadorNombre} · ${r.fechaRealizado||''}`:''}</div>
       <div class="tj-extra">
         <span><i class="ti ti-map-pin" style="font-size:12px;margin-right:3px"></i>${r.lugar}</span>
         <span><i class="ti ti-file-description" style="font-size:12px;margin-right:3px"></i>${r.desc.slice(0,80)}${r.desc.length>80?'…':''}</span>
         ${r.notas?`<span><i class="ti ti-note" style="font-size:12px;margin-right:3px"></i>${r.notas}</span>`:''}
       </div>
       <div class="tj-actions">
-        <button class="tj-btn" onclick="openEditTJ('${r.id}')">
-          <i class="ti ti-pencil"></i>Editar
-        </button>
-        ${!isCancelled?`<button class="tj-btn danger" onclick="openCancelTJ('${r.id}')">
-          <i class="ti ti-ban"></i>Cancelar
-        </button>`:`<button class="tj-btn" style="color:var(--brand);border-color:var(--brand)" onclick="restoreTJ('${r.id}')">
-          <i class="ti ti-refresh"></i>Restaurar
-        </button>`}
+        ${isAdmin?`
+          <button class="tj-btn" onclick="openEditTJ('${r.id}')"><i class="ti ti-pencil"></i>Editar</button>
+          ${!isCancelled
+            ?`<button class="tj-btn danger" onclick="openCancelTJ('${r.id}')"><i class="ti ti-ban"></i>Cancelar</button>`
+            :`<button class="tj-btn" style="color:var(--brand);border-color:var(--brand)" onclick="restoreTJ('${r.id}')"><i class="ti ti-refresh"></i>Restaurar</button>`
+          }`:`
+          ${!isRealizado && !isCancelled
+            ?`<button class="tj-btn realizar" onclick="openRealizar('${r.id}')"><i class="ti ti-circle-check"></i>Marcar como realizado</button>`
+            :isRealizado?`<button class="tj-btn" style="color:var(--brand-d);border-color:var(--brand);cursor:default" disabled><i class="ti ti-check"></i>Completado${realizadorNombre?' por '+realizadorNombre:''}</button>`
+            :`<span style="font-size:12px;color:var(--txt3)">Cancelado</span>`
+          }`
+        }
       </div>
     </div>`;
   }).join('');
@@ -1109,6 +1181,33 @@ async function restoreTJ(id){
   renderTJ('cancelado');
   renderDash();
   showToast('Trabajo restaurado como Pendiente');
+}
+
+/* ══ REALIZAR TRABAJO (Técnico) ══ */
+function openRealizar(id){
+  const r=registros.find(x=>x.id===id);
+  if(!r)return;
+  document.getElementById('realizar-id').value=id;
+  document.getElementById('realizar-desc').innerHTML=
+    `<strong>${TIPO_LBL[r.tipo]||r.tipo}</strong> · ${r.cnombre} · ${r.fecha}<br>Al confirmar quedará como <strong>Realizado</strong> con tu ID (${currentUser.wid}).`;
+  document.getElementById('realizar-notas').value='';
+  openModal('modal-realizar');
+}
+async function confirmRealizar(){
+  const id=document.getElementById('realizar-id').value;
+  const notas=document.getElementById('realizar-notas').value.trim();
+  const r=registros.find(x=>x.id===id);
+  if(!r)return;
+  r.estado='realizado';
+  r.realizadoPor=currentUser.wid;
+  r.fechaRealizado=new Date().toISOString().split('T')[0];
+  if(notas) r.notas=(r.notas?r.notas+' | ':'')+notas;
+  const {_fid,...data}=r;
+  await fbSet(COL.registros, id, data);
+  closeModal('modal-realizar');
+  renderTJ('todos');
+  renderDash();
+  showToast('¡Trabajo marcado como realizado!');
 }
 
 /* ══ TAB 1: ANEXAR ══ */
@@ -1199,7 +1298,7 @@ async function saveReg(){
   if(!curEstado){showToast('Selecciona el estado');return;}
   const cnombre=clients.find(c=>c.id===selCid)?.name||'';
   const rid='R'+String(nextRnum++).padStart(3,'0');
-  const reg={id:rid,cid:selCid,cnombre,wid:currentUser?currentUser.wid:'W-0001',tipo,lugar,fecha,costo,desc,notas,estado:curEstado,prox};
+  const reg={id:rid,cid:selCid,cnombre,wid:currentUser?currentUser.wid:'W-0001',tipo,lugar,fecha,costo,desc,notas,estado:curEstado,prox,realizadoPor:'',fechaRealizado:''};
   registros.unshift(reg);
   await fbSet(COL.registros, rid, reg);
   await saveMeta();
@@ -1224,28 +1323,55 @@ function resetForm(){
 }
 
 /* ══ TAB 2: INGRESOS ══ */
+const MESES_LBL=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MESES_FULL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+let barChart=null;
+
 function buildMeses(){
-  const sel=document.getElementById('dash-mes');
-  const meses=['Enero','Febrero','Marzo','Abril','Mayo','Junio',
-               'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  sel.innerHTML='';
-  for(let i=0;i<12;i++){
+  const now=new Date();
+  const curYear=now.getFullYear();
+  const curMonth=now.getMonth();
+
+  // Año: desde 2024 hasta año actual + 1
+  const selY=document.getElementById('dash-anio');
+  selY.innerHTML='';
+  for(let y=2024;y<=curYear+1;y++){
     const o=document.createElement('option');
-    o.value=i; o.textContent=meses[i]+' 2025';
-    if(i===4)o.selected=true;
-    sel.appendChild(o);
+    o.value=y; o.textContent=y;
+    if(y===curYear)o.selected=true;
+    selY.appendChild(o);
   }
+
+  // Mes
+  const sel=document.getElementById('dash-mes');
+  sel.innerHTML='';
+  MESES_FULL.forEach((m,i)=>{
+    const o=document.createElement('option');
+    o.value=i; o.textContent=m;
+    if(i===curMonth)o.selected=true;
+    sel.appendChild(o);
+  });
 }
+
+function populateWorkerSel(){
+  // Ya no se usa en el formulario, se mantiene por si acaso
+}
+function onWorkerSel(){}
+
 function renderDash(){
   const mes=parseInt(document.getElementById('dash-mes').value);
+  const anio=parseInt(document.getElementById('dash-anio').value);
+
+  // Filtro mes/año seleccionado
   const del=registros.filter(r=>{
     if(!r.fecha||r.estado==='cancelado')return false;
     const d=new Date(r.fecha+'T00:00:00');
-    return d.getMonth()===mes;
+    return d.getMonth()===mes && d.getFullYear()===anio;
   });
   const total=del.reduce((a,r)=>a+r.costo,0);
   const realizados=del.filter(r=>r.estado==='realizado').length;
   const pendientes=del.filter(r=>r.estado==='pendiente').length;
+
   document.getElementById('kpi-row').innerHTML=`
     <div class="kpi">
       <div class="kpi-lbl">Ingresos del mes</div>
@@ -1257,6 +1383,8 @@ function renderDash(){
       <div class="kpi-val">${realizados}</div>
       <div class="kpi-sub">${pendientes} pendiente${pendientes!==1?'s':''}</div>
     </div>`;
+
+  // Barras por área (mes seleccionado)
   const por={ac:0,remodelacion:0,electrico:0,tablaroca:0};
   del.forEach(r=>{const cat=AREA_CAT[r.tipo];if(cat)por[cat]+=r.costo;});
   const max=Math.max(...Object.values(por),1);
@@ -1264,11 +1392,103 @@ function renderDash(){
     Object.entries(por).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
       `<div class="area-card">
         <span class="area-name">${AREA_LBL[k]}</span>
-        <div class="area-bar-wrap">
-          <div class="area-bar" style="width:${(v/max*100).toFixed(1)}%"></div>
-        </div>
+        <div class="area-bar-wrap"><div class="area-bar" style="width:${(v/max*100).toFixed(1)}%"></div></div>
         <span class="area-val">$${v.toLocaleString()}</span>
       </div>`).join('');
+
+  // Gráfica de barras: todos los meses del año seleccionado por área
+  renderBarChart(anio);
+}
+
+function renderBarChart(anio){
+  const canvas=document.getElementById('chart-areas');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+
+  // Calcular datos por mes y área
+  const areas=['ac','remodelacion','electrico','tablaroca'];
+  const COLORS={
+    ac:'#1D9E75', remodelacion:'#3B82F6',
+    electrico:'#F59E0B', tablaroca:'#8B5CF6'
+  };
+  const dataByArea={};
+  areas.forEach(a=>{
+    dataByArea[a]=Array(12).fill(0);
+  });
+  registros.forEach(r=>{
+    if(!r.fecha||r.estado==='cancelado')return;
+    const d=new Date(r.fecha+'T00:00:00');
+    if(d.getFullYear()!==anio)return;
+    const cat=AREA_CAT[r.tipo];
+    if(cat) dataByArea[cat][d.getMonth()]+=r.costo;
+  });
+
+  // Destruir chart anterior si existe
+  if(barChart){barChart.destroy();barChart=null;}
+
+  // Dibujar manualmente con canvas
+  const W=canvas.offsetWidth||canvas.parentElement.offsetWidth||340;
+  canvas.width=W;
+  canvas.height=220;
+  const PAD={t:10,r:10,b:40,l:55};
+  const cW=W-PAD.l-PAD.r;
+  const cH=canvas.height-PAD.t-PAD.b;
+
+  // Max valor
+  let maxVal=0;
+  areas.forEach(a=>dataByArea[a].forEach(v=>{if(v>maxVal)maxVal=v;}));
+  if(maxVal===0)maxVal=1;
+
+  ctx.clearRect(0,0,W,canvas.height);
+
+  const isDark=getComputedStyle(document.documentElement).getPropertyValue('--txt').trim()==='#fff';
+  const txtColor='#4B5563';
+  const gridColor='#E2E6EC';
+
+  // Grid lines
+  const steps=4;
+  ctx.strokeStyle=gridColor; ctx.lineWidth=.5;
+  ctx.fillStyle=txtColor; ctx.font='10px system-ui';
+  for(let i=0;i<=steps;i++){
+    const y=PAD.t+cH-(i/steps)*cH;
+    ctx.beginPath();ctx.moveTo(PAD.l,y);ctx.lineTo(PAD.l+cW,y);ctx.stroke();
+    const lbl='$'+(maxVal*i/steps/1000).toFixed(0)+'k';
+    ctx.textAlign='right';
+    ctx.fillText(lbl,PAD.l-4,y+3);
+  }
+
+  // Barras agrupadas
+  const grpW=cW/12;
+  const barW=grpW/areas.length*0.72;
+  const gap=grpW/areas.length*0.28/2;
+
+  areas.forEach((a,ai)=>{
+    ctx.fillStyle=COLORS[a];
+    dataByArea[a].forEach((v,mi)=>{
+      const bH=v/maxVal*cH;
+      const x=PAD.l+mi*grpW+ai*(barW+gap);
+      const y=PAD.t+cH-bH;
+      ctx.fillRect(x,y,barW,bH);
+    });
+  });
+
+  // Labels meses
+  ctx.fillStyle=txtColor; ctx.font='9px system-ui'; ctx.textAlign='center';
+  MESES_LBL.forEach((m,i)=>{
+    ctx.fillText(m, PAD.l+i*grpW+grpW/2, PAD.t+cH+14);
+  });
+
+  // Leyenda
+  const legY=PAD.t+cH+30;
+  let legX=PAD.l;
+  areas.forEach(a=>{
+    ctx.fillStyle=COLORS[a];
+    ctx.fillRect(legX,legY-7,10,10);
+    ctx.fillStyle=txtColor; ctx.font='9px system-ui'; ctx.textAlign='left';
+    ctx.fillText(AREA_LBL[a],legX+13,legY+2);
+    legX+=cW/areas.length;
+  });
+  barChart={destroy:()=>{}};
 }
 
 /* ══ TAB 3: EQUIPO / TRABAJADORES ══ */
@@ -1399,7 +1619,8 @@ Object.assign(window,{
   go,toggleEye,doLogin,logout,sendOTP,otpN,otpB,verOTP,resendOTP,savePwd,
   setTab,filterTJ,renderTJ,
   openEditTJ,editTipoChange,saveEditTJ,openCancelTJ,confirmCancelTJ,restoreTJ,
-  searchCli,selCli,toggleNewCli,createCli,onTipo,chkVencido,setE,saveReg,
+  openRealizar,confirmRealizar,
+  searchCli,selCli,toggleNewCli,createCli,onTipo,chkVencido,setE,saveReg,onWorkerSel,
   renderDash,buildMeses,
   renderWorkers,openAddWorker,addWorker,openEditWorker,saveEditWorker,
   openBajaWorker,confirmBaja,reactivarWorker,
